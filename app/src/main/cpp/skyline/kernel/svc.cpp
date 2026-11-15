@@ -197,7 +197,11 @@ namespace skyline::kernel::svc {
             return;
         }
 
-        state.process->memory.SvcUnmapMemory(span<u8>{source, size}, span<u8>{destination, size});
+        if (!state.process->memory.SvcUnmapMemory(span<u8>{source, size}, span<u8>{destination, size})) {
+            ctx.w0 = result::InvalidCurrentMemory;
+            LOGW("Invalid source or destination mapping for svcUnmapMemory: 'source': {}, 'destination': {}, 'size': 0x{:X}", fmt::ptr(source), fmt::ptr(destination), size);
+            return;
+        }
         state.process->memory.UnmapMemory(span<u8>{destination, size});
 
         LOGD("Unmapped range {} - {} to {} - {} (Size: 0x{:X} bytes)", fmt::ptr(destination), fmt::ptr(destination + size), source, source + size, size);
