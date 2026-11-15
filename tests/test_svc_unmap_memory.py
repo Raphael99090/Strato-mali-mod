@@ -19,7 +19,7 @@ functions = cpp[cpp.index("    void MemoryManager::MapInternal("):cpp.index(
 functions += cpp[cpp.index("    bool MemoryManager::CollectSvcMemoryRange("):cpp.index(
     "    bool MemoryManager::SvcSetMemoryAttribute("
 )]
-functions += cpp[cpp.index("    void MemoryManager::SvcUnmapMemory("):cpp.index(
+functions += cpp[cpp.index("    bool MemoryManager::SvcUnmapMemory("):cpp.index(
     "    void MemoryManager::AddRef("
 )]
 
