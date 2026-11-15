@@ -53,7 +53,7 @@ public:
     void MapInternal(const std::pair<u8 *, ChunkDescriptor> &);
     bool CollectSvcMemoryRange(span<u8>, u32, u8,
         std::vector<std::pair<u8 *, ChunkDescriptor>> &);
-    void SvcUnmapMemory(span<u8>, span<u8>);
+    bool SvcUnmapMemory(span<u8>, span<u8>);
 };
 FUNCTIONS
 }
@@ -118,8 +118,8 @@ int main() {
     reset();
     std::memset(bytes + 0x1000, 0x11, 0x2000);
     std::memset(bytes + 0x8000, 0x7A, 0x2000);
-    manager.SvcUnmapMemory({bytes + 0x1000, 0x2000},
-                           {bytes + 0x8000, 0x2000});
+    assert(manager.SvcUnmapMemory({bytes + 0x1000, 0x2000},
+                                  {bytes + 0x8000, 0x2000}));
     assert(std::memcmp(bytes + 0x1000, bytes + 0x8000, 0x2000) == 0);
     for (auto address : {bytes + 0x1000, bytes + 0x2000}) {
         const auto &d = manager.chunks.at(address);
@@ -133,8 +133,8 @@ int main() {
     reset(false, true);
     std::memset(bytes + 0x1000, 0x11, 0x2000);
     std::memset(bytes + 0x8000, 0x7A, 0x2000);
-    manager.SvcUnmapMemory({bytes + 0x1000, 0x2000},
-                           {bytes + 0x8000, 0x2000});
+    assert(!manager.SvcUnmapMemory({bytes + 0x1000, 0x2000},
+                                   {bytes + 0x8000, 0x2000}));
     assert(bytes[0x1000] == 0x11);
     assert((sourceFirst().permission == memory::Permission{false, false, false}));
     assert(sourceFirst().attributes.isBorrowed);
@@ -144,15 +144,15 @@ int main() {
     reset(true, false);
     std::memset(bytes + 0x1000, 0x11, 0x2000);
     std::memset(bytes + 0x8000, 0x7A, 0x2000);
-    manager.SvcUnmapMemory({bytes + 0x1000, 0x2000},
-                           {bytes + 0x8000, 0x2000});
+    assert(!manager.SvcUnmapMemory({bytes + 0x1000, 0x2000},
+                                   {bytes + 0x8000, 0x2000}));
     assert(bytes[0x1000] == 0x11);
     assert(sourceFirst().attributes.isBorrowed);
 
     // Same/overlapping ranges are rejected without touching the descriptors.
     reset();
-    manager.SvcUnmapMemory({bytes + 0x1000, 0x1000},
-                           {bytes + 0x1000, 0x1000});
+    assert(!manager.SvcUnmapMemory({bytes + 0x1000, 0x1000},
+                                   {bytes + 0x1000, 0x1000}));
     assert(sourceFirst().attributes.isBorrowed);
 }
 """.replace("TYPES", types).replace("FUNCTIONS", functions)
