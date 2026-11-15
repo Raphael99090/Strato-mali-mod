@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 // Copyright © 2022 Skyline Team and Contributors (https://github.com/skyline-emu/)
 
+#include <atomic>
 #include <gpu/buffer_manager.h>
 #include <soc/gm20b/channel.h>
 #include <soc/gm20b/gmmu.h>
@@ -25,8 +26,14 @@ namespace skyline::gpu::interconnect {
         // Mapping from the start of the buffer view to the end of the block
         auto fullMapping{blockMapping.subspan(address - blockMappingStartAddr)};
 
-        if (splitMappingWarn && fullMapping.size() < size)
-            LOGW("Split buffer mappings are not supported");
+        if (splitMappingWarn && fullMapping.size() < size) {
+            // This can be reached repeatedly while the same guest buffer is rebound.
+            // Keep the diagnostic, but avoid flooding logcat on every draw/dispatch.
+            static std::atomic_flag splitMappingWarningLogged = ATOMIC_FLAG_INIT;
+            if (!splitMappingWarningLogged.test_and_set(std::memory_order_relaxed))
+                LOGW("Split GPU buffer mapping is not supported yet (address: 0x{:X}, requested: 0x{:X}, available: 0x{:X}); using the mapped portion only",
+                     address, size, fullMapping.size());
+        }
 
         // Mapping covering just the requested input view (or less in the case of split mappings)
         auto viewMapping{fullMapping.first(std::min(fullMapping.size(), size))};
