@@ -134,7 +134,7 @@ int main() {
     std::memset(bytes + 0x8000, 0x7A, 0x2000);
     manager.SvcUnmapMemory({bytes + 0x1000, 0x2000},
                            {bytes + 0x8000, 0x2000});
-    assert(memory[0x1000] == 0x11);
+    assert(bytes[0x1000] == 0x11);
     assert((sourceFirst().permission == memory::Permission{false, false, false}));
     assert(sourceFirst().attributes.isBorrowed);
     assert(!sourceSecond().attributes.isBorrowed);
@@ -145,7 +145,7 @@ int main() {
     std::memset(bytes + 0x8000, 0x7A, 0x2000);
     manager.SvcUnmapMemory({bytes + 0x1000, 0x2000},
                            {bytes + 0x8000, 0x2000});
-    assert(memory[0x1000] == 0x11);
+    assert(bytes[0x1000] == 0x11);
     assert(sourceFirst().attributes.isBorrowed);
 
     // Same/overlapping ranges are rejected without touching the descriptors.
