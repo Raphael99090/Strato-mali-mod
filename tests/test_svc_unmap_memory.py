@@ -59,6 +59,7 @@ FUNCTIONS
 }
 }
 int main() {
+    using namespace skyline;
     using namespace skyline::kernel;
     alignas(4096) static u8 bytes[0x10000];
     MemoryManager manager;
