@@ -191,9 +191,16 @@ namespace skyline::kernel::svc {
             return;
         }
 
+        if (source >= (source + size) ||
+            !state.process->memory.AddressSpaceContains(span<u8>{source, size})) [[unlikely]] {
+            ctx.w0 = result::InvalidCurrentMemory;
+            LOGW("Invalid source address and size combination: 'source': {}, 'size': 0x{:X} bytes", fmt::ptr(source), size);
+            return;
+        }
+
         if (!state.process->memory.stack.guest.contains(span<u8>{destination, size})) [[unlikely]] {
             ctx.w0 = result::InvalidMemoryRegion;
-            LOGW("Source not within stack region: 'source': {}, 'destination': {}, 'size': 0x{:X} bytes", fmt::ptr(source), fmt::ptr(destination), size);
+            LOGW("Destination not within stack region: 'source': {}, 'destination': {}, 'size': 0x{:X} bytes", fmt::ptr(source), fmt::ptr(destination), size);
             return;
         }
 
