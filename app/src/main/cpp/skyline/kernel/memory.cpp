@@ -726,14 +726,15 @@ namespace skyline::kernel {
             offset += destinationDescriptor.size;
         }
 
-        // Copy data back while the source is still borrowed/inaccessible.
+        // Restore the source mappings before writing the copied data back.
+        // This preserves the original SVC ordering and ensures the host mapping
+        // is accessible before memcpy, including when the range was protected.
+        for (const auto &descriptor : sourceRanges)
+            MapInternal(descriptor);
+
         const auto sourceHost{GetHostSpan(source)};
         const auto destinationHost{GetHostSpan(destination)};
         std::memcpy(sourceHost.data(), destinationHost.data(), source.size());
-
-        // Restore the original source mapping using snapshots, never live iterators.
-        for (const auto &descriptor : sourceRanges)
-            MapInternal(descriptor);
         return true;
     }
 
