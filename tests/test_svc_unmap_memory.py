@@ -60,7 +60,7 @@ FUNCTIONS
 }
 int main() {
     using namespace skyline::kernel;
-    alignas(4096) static u8 memory[0x10000];
+    alignas(4096) static u8 bytes[0x10000];
     MemoryManager manager;
 
     auto makeDescriptor = [](size_t size, memory::MemoryState state,
@@ -79,50 +79,50 @@ int main() {
         ChunkDescriptor unmapped{};
         unmapped.state = memory::states::Unmapped;
         unmapped.size = 0x1000;
-        manager.chunks.emplace(memory, unmapped);
+        manager.chunks.emplace(bytes, unmapped);
 
         auto sourceFirst = makeDescriptor(0x1000, memory::states::Stack,
             memory::Permission{false, false, false}, true);
         auto sourceSecond = sourceFirst;
         if (!validSource) sourceSecond.attributes.isBorrowed = false;
-        manager.chunks.emplace(memory + 0x1000, sourceFirst);
-        manager.chunks.emplace(memory + 0x2000, sourceSecond);
+        manager.chunks.emplace(bytes + 0x1000, sourceFirst);
+        manager.chunks.emplace(bytes + 0x2000, sourceSecond);
 
         unmapped.size = 0x5000;
-        manager.chunks.emplace(memory + 0x3000, unmapped);
+        manager.chunks.emplace(bytes + 0x3000, unmapped);
 
         auto destinationFirst = makeDescriptor(0x1000, memory::states::Stack,
             memory::Permission{true, true, false}, false);
         auto destinationSecond = destinationFirst;
         if (!validDestination) destinationSecond.permission =
             memory::Permission{true, false, false};
-        manager.chunks.emplace(memory + 0x8000, destinationFirst);
-        manager.chunks.emplace(memory + 0x9000, destinationSecond);
+        manager.chunks.emplace(bytes + 0x8000, destinationFirst);
+        manager.chunks.emplace(bytes + 0x9000, destinationSecond);
 
         unmapped.size = 0x6000;
-        manager.chunks.emplace(memory + 0xA000, unmapped);
+        manager.chunks.emplace(bytes + 0xA000, unmapped);
         ChunkDescriptor sentinel{};
         sentinel.state = memory::states::Reserved;
-        manager.chunks.emplace(memory + sizeof(memory), sentinel);
+        manager.chunks.emplace(bytes + sizeof(bytes), sentinel);
     };
 
     auto sourceFirst = [&]() -> ChunkDescriptor & {
-        return manager.chunks.at(memory + 0x1000);
+        return manager.chunks.at(bytes + 0x1000);
     };
     auto sourceSecond = [&]() -> ChunkDescriptor & {
-        return manager.chunks.at(memory + 0x2000);
+        return manager.chunks.at(bytes + 0x2000);
     };
 
     // Complete valid unmap across two destination and two source descriptors.
     reset();
-    std::memset(memory + 0x1000, 0x11, 0x2000);
-    std::memset(memory + 0x8000, 0x7A, 0x2000);
-    manager.SvcUnmapMemory({memory + 0x1000, 0x2000},
-                           {memory + 0x8000, 0x2000});
-    assert(std::memcmp(memory + 0x1000, memory + 0x8000, 0x2000) == 0);
-    for (auto address : {memory + 0x1000, memory + 0x2000}) {
+    std::memset(bytes + 0x1000, 0x11, 0x2000);
+    std::memset(bytes + 0x8000, 0x7A, 0x2000);
+    manager.SvcUnmapMemory({bytes + 0x1000, 0x2000},
+                           {bytes + 0x8000, 0x2000});
+    assert(std::memcmp(bytes + 0x1000, bytes + 0x8000, 0x2000) == 0);
+    for (auto address : {bytes + 0x1000, bytes + 0x2000}) {
         const auto &d = manager.chunks.at(address);
-        assert(d.permission == memory::Permission{true, true, false});
+        assert((d.permission == memory::Permission{true, true, false}));
         assert(!d.attributes.isBorrowed);
         assert(d.state == memory::states::Stack);
     }
@@ -130,28 +130,28 @@ int main() {
     // A bad later source chunk must reject the entire operation before copying
     // or restoring the earlier valid chunk.
     reset(false, true);
-    std::memset(memory + 0x1000, 0x11, 0x2000);
-    std::memset(memory + 0x8000, 0x7A, 0x2000);
-    manager.SvcUnmapMemory({memory + 0x1000, 0x2000},
-                           {memory + 0x8000, 0x2000});
+    std::memset(bytes + 0x1000, 0x11, 0x2000);
+    std::memset(bytes + 0x8000, 0x7A, 0x2000);
+    manager.SvcUnmapMemory({bytes + 0x1000, 0x2000},
+                           {bytes + 0x8000, 0x2000});
     assert(memory[0x1000] == 0x11);
-    assert(sourceFirst().permission == memory::Permission{false, false, false});
+    assert((sourceFirst().permission == memory::Permission{false, false, false}));
     assert(sourceFirst().attributes.isBorrowed);
     assert(!sourceSecond().attributes.isBorrowed);
 
     // A bad later destination descriptor must also reject atomically.
     reset(true, false);
-    std::memset(memory + 0x1000, 0x11, 0x2000);
-    std::memset(memory + 0x8000, 0x7A, 0x2000);
-    manager.SvcUnmapMemory({memory + 0x1000, 0x2000},
-                           {memory + 0x8000, 0x2000});
+    std::memset(bytes + 0x1000, 0x11, 0x2000);
+    std::memset(bytes + 0x8000, 0x7A, 0x2000);
+    manager.SvcUnmapMemory({bytes + 0x1000, 0x2000},
+                           {bytes + 0x8000, 0x2000});
     assert(memory[0x1000] == 0x11);
     assert(sourceFirst().attributes.isBorrowed);
 
     // Same/overlapping ranges are rejected without touching the descriptors.
     reset();
-    manager.SvcUnmapMemory({memory + 0x1000, 0x1000},
-                           {memory + 0x1000, 0x1000});
+    manager.SvcUnmapMemory({bytes + 0x1000, 0x1000},
+                           {bytes + 0x1000, 0x1000});
     assert(sourceFirst().attributes.isBorrowed);
 }
 """.replace("TYPES", types).replace("FUNCTIONS", functions)
