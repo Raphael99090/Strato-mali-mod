@@ -665,25 +665,25 @@ namespace skyline::kernel {
         return true;
     }
 
-    void MemoryManager::SvcUnmapMemory(span<u8> source, span<u8> destination) {
+    bool MemoryManager::SvcUnmapMemory(span<u8> source, span<u8> destination) {
         std::unique_lock lock{mutex};
 
         // The operation requires equal, non-empty, non-overlapping guest ranges.
         // Check address arithmetic before forming end addresses.
         if (source.empty() || source.size() != destination.size())
-            return;
+            return false;
 
         const auto sourceBegin{reinterpret_cast<std::uintptr_t>(source.data())};
         const auto destinationBegin{reinterpret_cast<std::uintptr_t>(destination.data())};
         const auto length{static_cast<std::uintptr_t>(source.size())};
         const auto maxAddress{std::numeric_limits<std::uintptr_t>::max()};
         if (sourceBegin > maxAddress - length || destinationBegin > maxAddress - length)
-            return;
+            return false;
 
         const auto sourceEnd{sourceBegin + length};
         const auto destinationEnd{destinationBegin + length};
         if (sourceBegin < destinationEnd && destinationBegin < sourceEnd)
-            return;
+            return false;
 
         // Validate the complete destination before changing either range.
         std::vector<std::pair<u8 *, ChunkDescriptor>> destinationRanges;
@@ -691,7 +691,7 @@ namespace skyline::kernel {
             destinationRanges.empty() ||
             destinationRanges.front().second.state != memory::states::Stack ||
             destinationRanges.front().second.permission != memory::Permission{true, true, false})
-            return;
+            return false;
 
         // Snapshot every source descriptor. MapInternal() can split, merge, or
         // erase entries, so map iterators must not survive into the mutation loop.
@@ -704,14 +704,14 @@ namespace skyline::kernel {
                 const auto sourceAddress{source.data() + offset + rangeOffset};
                 auto sourceChunk{chunks.upper_bound(sourceAddress)};
                 if (sourceChunk == chunks.begin())
-                    return;
+                    return false;
                 --sourceChunk;
 
                 if (sourceAddress < sourceChunk->first ||
                     sourceAddress >= sourceChunk->first + sourceChunk->second.size ||
                     !sourceChunk->second.attributes.isBorrowed ||
                     sourceChunk->second.permission != memory::Permission{false, false, false})
-                    return;
+                    return false;
 
                 const auto available{static_cast<size_t>(
                     (sourceChunk->first + sourceChunk->second.size) - sourceAddress)};
@@ -734,6 +734,7 @@ namespace skyline::kernel {
         // Restore the original source mapping using snapshots, never live iterators.
         for (const auto &descriptor : sourceRanges)
             MapInternal(descriptor);
+        return true;
     }
 
     void MemoryManager::AddRef(std::shared_ptr<type::KMemory> ptr) {
