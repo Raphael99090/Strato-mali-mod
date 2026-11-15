@@ -2,6 +2,8 @@
 // Copyright © 2020 Skyline Team and Contributors (https://github.com/skyline-emu/)
 
 #include <fstream>
+#include <cstdint>
+#include <limits>
 #include <asm-generic/unistd.h>
 #include <fcntl.h>
 #include "memory.h"
@@ -663,27 +665,77 @@ namespace skyline::kernel {
         return true;
     }
 
-    void MemoryManager::SvcUnmapMemory(span<u8> source, span<u8> destination) {
+    bool MemoryManager::SvcUnmapMemory(span<u8> source, span<u8> destination) {
         std::unique_lock lock{mutex};
 
-        auto dstChunk = chunks.lower_bound(destination.data());
-        if (destination.data() < dstChunk->first)
-            --dstChunk;
-        while (dstChunk->second.state == memory::states::Unmapped)
-            ++dstChunk;
+        // The operation requires equal, non-empty, non-overlapping guest ranges.
+        // Check address arithmetic before forming end addresses.
+        if (source.empty() || source.size() != destination.size())
+            return false;
 
-        if ((destination.data() + destination.size()) > dstChunk->first) [[likely]] {
-            ForeachChunkInRange(span<u8>{source.data() + (dstChunk->first - destination.data()), dstChunk->second.size}, [&](std::pair<u8 *, ChunkDescriptor> &desc) __attribute__((always_inline)) {
-                desc.second.permission = dstChunk->second.permission;
-                desc.second.attributes.isBorrowed = false;
-                MapInternal(desc);
-            });
+        const auto sourceBegin{reinterpret_cast<std::uintptr_t>(source.data())};
+        const auto destinationBegin{reinterpret_cast<std::uintptr_t>(destination.data())};
+        const auto length{static_cast<std::uintptr_t>(source.size())};
+        const auto maxAddress{std::numeric_limits<std::uintptr_t>::max()};
+        if (sourceBegin > maxAddress - length || destinationBegin > maxAddress - length)
+            return false;
 
-            auto sourceHost{GetHostSpan(source)};
-            auto dstChunkHost{GetHostSpan(span<u8>{dstChunk->first, dstChunk->second.size})};
-            auto destinationOffset{dstChunk->first - destination.data()};
-            std::memcpy(sourceHost.data() + destinationOffset, dstChunkHost.data(), dstChunkHost.size());
+        const auto sourceEnd{sourceBegin + length};
+        const auto destinationEnd{destinationBegin + length};
+        if (sourceBegin < destinationEnd && destinationBegin < sourceEnd)
+            return false;
+
+        // Validate the complete destination before changing either range.
+        std::vector<std::pair<u8 *, ChunkDescriptor>> destinationRanges;
+        if (!CollectSvcMemoryRange(destination, memory::states::Stack.value, 0xFF, destinationRanges) ||
+            destinationRanges.empty() ||
+            destinationRanges.front().second.state != memory::states::Stack ||
+            destinationRanges.front().second.permission != memory::Permission{true, true, false})
+            return false;
+
+        // Snapshot every source descriptor. MapInternal() can split, merge, or
+        // erase entries, so map iterators must not survive into the mutation loop.
+        std::vector<std::pair<u8 *, ChunkDescriptor>> sourceRanges;
+        size_t offset{};
+        for (const auto &destinationRange : destinationRanges) {
+            const auto &destinationDescriptor{destinationRange.second};
+            size_t rangeOffset{};
+            while (rangeOffset < destinationDescriptor.size) {
+                const auto sourceAddress{source.data() + offset + rangeOffset};
+                auto sourceChunk{chunks.upper_bound(sourceAddress)};
+                if (sourceChunk == chunks.begin())
+                    return false;
+                --sourceChunk;
+
+                if (sourceAddress < sourceChunk->first ||
+                    sourceAddress >= sourceChunk->first + sourceChunk->second.size ||
+                    !sourceChunk->second.attributes.isBorrowed ||
+                    sourceChunk->second.permission != memory::Permission{false, false, false})
+                    return false;
+
+                const auto available{static_cast<size_t>(
+                    (sourceChunk->first + sourceChunk->second.size) - sourceAddress)};
+                const auto lengthToRestore{std::min(destinationDescriptor.size - rangeOffset, available)};
+                auto restored{sourceChunk->second};
+                restored.size = lengthToRestore;
+                restored.permission = destinationDescriptor.permission;
+                restored.attributes.isBorrowed = false;
+                sourceRanges.emplace_back(sourceAddress, restored);
+                rangeOffset += lengthToRestore;
+            }
+            offset += destinationDescriptor.size;
         }
+
+        // Restore the source mappings before writing the copied data back.
+        // This preserves the original SVC ordering and ensures the host mapping
+        // is accessible before memcpy, including when the range was protected.
+        for (const auto &descriptor : sourceRanges)
+            MapInternal(descriptor);
+
+        const auto sourceHost{GetHostSpan(source)};
+        const auto destinationHost{GetHostSpan(destination)};
+        std::memcpy(sourceHost.data(), destinationHost.data(), source.size());
+        return true;
     }
 
     void MemoryManager::AddRef(std::shared_ptr<type::KMemory> ptr) {

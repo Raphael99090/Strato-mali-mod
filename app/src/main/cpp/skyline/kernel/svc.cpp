@@ -191,13 +191,25 @@ namespace skyline::kernel::svc {
             return;
         }
 
-        if (!state.process->memory.stack.guest.contains(span<u8>{destination, size})) [[unlikely]] {
-            ctx.w0 = result::InvalidMemoryRegion;
-            LOGW("Source not within stack region: 'source': {}, 'destination': {}, 'size': 0x{:X} bytes", fmt::ptr(source), fmt::ptr(destination), size);
+        const auto sourceAddress{reinterpret_cast<std::uintptr_t>(source)};
+        if (sourceAddress > std::numeric_limits<std::uintptr_t>::max() - size ||
+            !state.process->memory.AddressSpaceContains(span<u8>{source, size})) [[unlikely]] {
+            ctx.w0 = result::InvalidCurrentMemory;
+            LOGW("Invalid source address and size combination: 'source': {}, 'size': 0x{:X} bytes", fmt::ptr(source), size);
             return;
         }
 
-        state.process->memory.SvcUnmapMemory(span<u8>{source, size}, span<u8>{destination, size});
+        if (!state.process->memory.stack.guest.contains(span<u8>{destination, size})) [[unlikely]] {
+            ctx.w0 = result::InvalidMemoryRegion;
+            LOGW("Destination not within stack region: 'source': {}, 'destination': {}, 'size': 0x{:X} bytes", fmt::ptr(source), fmt::ptr(destination), size);
+            return;
+        }
+
+        if (!state.process->memory.SvcUnmapMemory(span<u8>{source, size}, span<u8>{destination, size})) {
+            ctx.w0 = result::InvalidCurrentMemory;
+            LOGW("Invalid source or destination mapping for svcUnmapMemory: 'source': {}, 'destination': {}, 'size': 0x{:X}", fmt::ptr(source), fmt::ptr(destination), size);
+            return;
+        }
         state.process->memory.UnmapMemory(span<u8>{destination, size});
 
         LOGD("Unmapped range {} - {} to {} - {} (Size: 0x{:X} bytes)", fmt::ptr(destination), fmt::ptr(destination + size), source, source + size, size);
