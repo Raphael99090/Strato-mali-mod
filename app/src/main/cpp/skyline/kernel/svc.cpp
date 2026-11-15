@@ -191,7 +191,8 @@ namespace skyline::kernel::svc {
             return;
         }
 
-        if (source >= (source + size) ||
+        const auto sourceAddress{reinterpret_cast<std::uintptr_t>(source)};
+        if (sourceAddress > std::numeric_limits<std::uintptr_t>::max() - size ||
             !state.process->memory.AddressSpaceContains(span<u8>{source, size})) [[unlikely]] {
             ctx.w0 = result::InvalidCurrentMemory;
             LOGW("Invalid source address and size combination: 'source': {}, 'size': 0x{:X} bytes", fmt::ptr(source), size);
