@@ -41,11 +41,21 @@ namespace {
                 }
             }
 
-            for (int j = 0; j < BlockHeight && (y + j) < dstH; j++) {
-                size_t dstOffset = j * dstPitch;
-                size_t idxOffset = j * BlockHeight;
-                for (size_t i = 0; i < BlockWidth && (x + i) < dstW; i++, idxOffset++, dstOffset += dstBpp) {
-                    *reinterpret_cast<unsigned int *>(dst + dstOffset) = c[getIdx(idxOffset)].pack8888();
+            // The vast majority of BCn blocks are fully inside the image.
+            // Check the edge once per block instead of once per texel.
+            if (x + BlockWidth <= dstW && y + BlockHeight <= dstH) {
+                for (int j = 0; j < BlockHeight; j++) {
+                    size_t dstOffset = j * dstPitch;
+                    size_t idxOffset = j * BlockHeight;
+                    for (int i = 0; i < BlockWidth; i++, idxOffset++, dstOffset += dstBpp)
+                        *reinterpret_cast<unsigned int *>(dst + dstOffset) = c[getIdx(idxOffset)].pack8888();
+                }
+            } else {
+                for (int j = 0; j < BlockHeight && (y + j) < dstH; j++) {
+                    size_t dstOffset = j * dstPitch;
+                    size_t idxOffset = j * BlockHeight;
+                    for (size_t i = 0; i < BlockWidth && (x + i) < dstW; i++, idxOffset++, dstOffset += dstBpp)
+                        *reinterpret_cast<unsigned int *>(dst + dstOffset) = c[getIdx(idxOffset)].pack8888();
                 }
             }
         }
@@ -142,9 +152,14 @@ namespace {
                 c[7] = isSigned ? 127 : 255;
             }
 
-            for (size_t j = 0; j < BlockHeight && (y + j) < dstH; j++) {
-                for (size_t i = 0; i < BlockWidth && (x + i) < dstW; i++) {
-                    dst[channel + (i * dstBpp) + (j * dstPitch)] = static_cast<uint8_t>(c[getIdx((j * BlockHeight) + i)]);
+            if (x + BlockWidth <= dstW && y + BlockHeight <= dstH) {
+                for (size_t j = 0; j < BlockHeight; j++)
+                    for (size_t i = 0; i < BlockWidth; i++)
+                        dst[channel + (i * dstBpp) + (j * dstPitch)] = static_cast<uint8_t>(c[getIdx((j * BlockHeight) + i)]);
+            } else {
+                for (size_t j = 0; j < BlockHeight && (y + j) < dstH; j++) {
+                    for (size_t i = 0; i < BlockWidth && (x + i) < dstW; i++)
+                        dst[channel + (i * dstBpp) + (j * dstPitch)] = static_cast<uint8_t>(c[getIdx((j * BlockHeight) + i)]);
                 }
             }
         }
@@ -162,10 +177,17 @@ namespace {
     struct BC_alpha {
         void decode(uint8_t *dst, size_t x, size_t y, size_t dstW, size_t dstH, size_t dstPitch, size_t dstBpp) const {
             dst += 3;  // Write only to alpha (channel 3)
-            for (size_t j = 0; j < BlockHeight && (y + j) < dstH; j++, dst += dstPitch) {
-                uint8_t *dstRow = dst;
-                for (size_t i = 0; i < BlockWidth && (x + i) < dstW; i++, dstRow += dstBpp) {
-                    *dstRow = getAlpha(j * BlockHeight + i);
+            if (x + BlockWidth <= dstW && y + BlockHeight <= dstH) {
+                for (size_t j = 0; j < BlockHeight; j++, dst += dstPitch) {
+                    uint8_t *dstRow = dst;
+                    for (size_t i = 0; i < BlockWidth; i++, dstRow += dstBpp)
+                        *dstRow = getAlpha(j * BlockHeight + i);
+                }
+            } else {
+                for (size_t j = 0; j < BlockHeight && (y + j) < dstH; j++, dst += dstPitch) {
+                    uint8_t *dstRow = dst;
+                    for (size_t i = 0; i < BlockWidth && (x + i) < dstW; i++, dstRow += dstBpp)
+                        *dstRow = getAlpha(j * BlockHeight + i);
                 }
             }
         }
