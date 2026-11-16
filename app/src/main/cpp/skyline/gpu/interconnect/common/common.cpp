@@ -23,20 +23,30 @@ namespace skyline::gpu::interconnect {
             blockMappingEndAddr = blockMappingStartAddr + blockMapping.size();
         }
 
-        // Mapping from the start of the buffer view to the end of the block
+        // Mapping from the start of the buffer view to the end of the current GMMU block.
         auto fullMapping{blockMapping.subspan(address - blockMappingStartAddr)};
-
-        if (splitMappingWarn && fullMapping.size() < size) {
-            // This can be reached repeatedly while the same guest buffer is rebound.
-            // Keep the diagnostic, but avoid flooding logcat on every draw/dispatch.
-            static std::atomic_flag splitMappingWarningLogged = ATOMIC_FLAG_INIT;
-            if (!splitMappingWarningLogged.test_and_set(std::memory_order_relaxed))
-                LOGW("Split GPU buffer mapping is not supported yet (address: 0x{:X}, requested: 0x{:X}, available: 0x{:X}); using the mapped portion only",
-                     address, size, fullMapping.size());
-        }
-
-        // Mapping covering just the requested input view (or less in the case of split mappings)
         auto viewMapping{fullMapping.first(std::min(fullMapping.size(), size))};
+
+        if (fullMapping.size() < size) {
+            // A GPU virtual range can cross multiple GMMU blocks while still referring to
+            // one contiguous host mapping. TranslateRange() joins those adjacent host spans,
+            // so prefer the complete range whenever it can be represented by one span.
+            auto translatedMappings{ctx.channelCtx.asCtx->gmmu.TranslateRange(address, size)};
+            if (translatedMappings.size() == 1 &&
+                translatedMappings.front().valid() &&
+                translatedMappings.front().size() >= size) {
+                viewMapping = translatedMappings.front().first(size);
+            } else if (splitMappingWarn) {
+                // Truly discontiguous host mappings still cannot be represented by the
+                // current Buffer/BufferView model. Keep the diagnostic rate-limited and
+                // retain the existing bounded fallback rather than constructing an
+                // invalid span across unrelated host allocations.
+                static std::atomic_flag splitMappingWarningLogged = ATOMIC_FLAG_INIT;
+                if (!splitMappingWarningLogged.test_and_set(std::memory_order_relaxed))
+                    LOGW("Non-contiguous GPU buffer mapping is not supported yet (address: 0x{:X}, requested: 0x{:X}, first segment: 0x{:X}, segments: {})",
+                         address, size, fullMapping.size(), translatedMappings.size());
+            }
+        }
 
         // First attempt to skip lookup by trying to reuse the previous view's underlying buffer
         if (view)
